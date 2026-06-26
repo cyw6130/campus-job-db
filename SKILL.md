@@ -17,7 +17,7 @@ bash ~/.claude/skills/campus-job-db/scripts/check_setup.sh
 
 **不要看完自检结果就自己默默选一条退化路径往下跑。** 把缺失项列给用户看，明确问清楚要怎么处理，再继续：
 
-- 模型 key 没配 → 告诉用户"结构化抽取/推荐打分需要模型 key，现在没有，可以帮你配（分发 toolbox/api-key-manager agent），或者直接用 `--no-model` 走未结构化的版本，你选哪个？"
+- 模型 key 没配 → 告诉用户"结构化抽取/推荐打分需要模型 key，现在没有，可以帮你配（如果你有专门管理 key 的子 agent 就分发给它，没有就直接问用户 key 放在哪个环境变量/怎么获取），或者直接用 `--no-model` 走未结构化的版本，你选哪个？"
 - opencli 没装/没连 → 告诉用户"抓取这种 JS 渲染的招聘页面需要 OpenCLI 浏览器桥，现在没连上，会退化成只能抓静态页（很可能失败）。要不要先装一下，还是直接试 WebFetch？"
 - Notion/Obsidian 没配置 → 在第 5 步选输出之前问清楚目标到底是哪个，缺的环境要不要现在配
 
@@ -68,7 +68,7 @@ bash ~/.claude/skills/campus-job-db/scripts/check_setup.sh
 
 ## 第 2 步：抓取
 
-**这一步可以直接派 `searcher` 子 agent 去做**——它内置的就是下面这套方法论（API 优先、DOM 退路、分页探测、去重），是通用检索能力的一部分，不是 campus-job-db 专属。派给它时说清楚要拿到的是"这个招聘列表页的全量原始数据（含职位标题/正文/链接），尽量找现成 API 直连”，让它把原始 JSON/文本交回来，你接着走第 3 步结构化——抓取的方法论维护在一处（`references/api-reverse-engineering.md`，searcher 也读这份），不用两边分别改。
+**如果你配置了专门做通用检索的子 agent（比如本作者自用的 `searcher`），这一步可以直接派给它**——它内置的就是下面这套方法论（API 优先、DOM 退路、分页探测、去重），是通用检索能力的一部分，不是 campus-job-db 专属。派给它时说清楚要拿到的是"这个招聘列表页的全量原始数据（含职位标题/正文/链接），尽量找现成 API 直连”，让它把原始 JSON/文本交回来，你接着走第 3 步结构化。没有这类子 agent 就直接照下面的方法论自己来——抓取的方法论都写在 `references/api-reverse-engineering.md` 里，自己读一遍就够。
 
 也可以自己动手（比如没有 agent 调度权限、或想自己控制细节），流程一样：**先看一眼 `network`，有没有现成 API 能直接调；没有才退回浏览器 DOM 抓取。** API 方案永远更便宜更稳——零浏览器、零 debugger 冲突、翻页是改个数字、还经常自带干净的结构化字段。完整方法论见 `references/api-reverse-engineering.md`，这里只列最终落地脚本。
 
@@ -200,7 +200,7 @@ python3 split_jobs_from_raw.py chunk1.txt chunk2.txt out.json \
   --model deepseek-v4-flash --base-url https://api.deepseek.com/v1 --key-env DEEPSEEK_API_KEY
 ```
 
-**不知道该用哪个 key/模型？** 不要猜，分发 `toolbox`（或 `api-key-manager`）agent 问，给它用例（"网页内容检索/结构化抽取"），它会回环境变量名 + base_url + 推荐模型名，不会把明文 key 吐给你。
+**不知道该用哪个 key/模型？** 不要猜——如果你有专门管理 key/工具用法的子 agent（比如本作者自用的 `toolbox`），分发给它问，给它用例（"网页内容检索/结构化抽取"），它会回环境变量名 + base_url + 推荐模型名，不会把明文 key 吐给你。没有这类子 agent 就直接问用户："结构化抽取需要一个 OpenAI 兼容的模型 key（默认假设是 DeepSeek），环境变量名是什么？"
 
 **这一步没有 `--no-model` 兜底**——拆分职位边界本身需要理解上下文，规则切分对不同站点格式不通用。没 key 时只能退回手写正则（用 `scripts/extract_jobs.py`，见下）。
 

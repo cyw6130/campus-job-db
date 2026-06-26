@@ -32,14 +32,17 @@ fi
 echo
 
 echo "[3/4] 输出渠道 - Notion"
-notion_ok=0
-if command -v ntn >/dev/null 2>&1; then
-  echo "  OK   已安装 ntn CLI"
-  notion_ok=1
-fi
-echo "  提示  本技能优先通过对话里已加载的 Notion MCP 工具"
-echo "        (mcp__plugin_Notion_notion__* 或 mcp__notion__*) 操作，不依赖 ntn CLI。"
+echo "  提示  建库通过对话里已加载的 Notion MCP 工具"
+echo "        (mcp__plugin_Notion_notion__* 或 mcp__notion__*) 操作。"
 echo "        用 ToolSearch 搜 'notion create database' 看是否已连接。"
+if [ -n "$NOTION_API_TOKEN" ]; then
+  echo "  OK   \$NOTION_API_TOKEN 已设置（写入页面用的 push_notion_pages.py 需要它）"
+else
+  echo "  MISS 未设置 \$NOTION_API_TOKEN"
+  echo "       -> 写入页面这一步（push_notion_pages.py）需要一个 internal integration secret"
+  echo "          （去 https://www.notion.com/my-integrations 创建，不是 MCP 那套 OAuth 授权）"
+  echo "       -> 且该集成要手动连接到目标数据库（数据库 ··· 菜单 -> Connections），否则 401"
+fi
 echo
 
 echo "[4/4] 输出渠道 - Obsidian"

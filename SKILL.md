@@ -17,7 +17,7 @@ bash ~/.claude/skills/campus-job-db/scripts/check_setup.sh
 
 **不要看完自检结果就自己默默选一条退化路径往下跑。** 把缺失项列给用户看，明确问清楚要怎么处理，再继续：
 
-- 模型 key 没配 → 告诉用户"结构化抽取/推荐打分需要模型 key，现在没有，可以帮你配（如果你有专门管理 key 的子 agent 就分发给它，没有就直接问用户 key 放在哪个环境变量/怎么获取），或者直接用 `--no-model` 走未结构化的版本，你选哪个？"
+- **模型 key 没配 → 不等于没法做结构化/解读/打分，默认路径不是砍掉功能，是换成你自己处理。** 这个 skill 里需要"模型"的 6 步（拆职位边界/结构化、可选的类别打标、批量预筛、职位解读、推荐打分）本质上是语义判断和文字生成——执行这个 skill 的你本身就有这个能力，不依赖外部 API。没有 `DEEPSEEK_API_KEY`/`OPENAI_API_KEY` 时，告诉用户："没配外部模型 key，我可以直接用当前模型处理这几步；职位数量多的话，要不要我换成派一个更省 token 的模型档位（比如 haiku）来批量处理，还是就用当前模型？如果以后想更快/更省，也可以配一个 DeepSeek key（便宜，OpenAI 兼容），这几步会自动走脚本的批量 API 调用。" 用户选哪个都行，但**别因为没配 key 就默认走 `--no-model` 纯规则切分**——那是用户明确不想要任何语义处理时才用的更彻底兜底，不是"没 key"的默认后果。具体怎么自己处理见第 3/4/5 步里"没有外部 key 时"的说明。
 - opencli 没装/没连 → 告诉用户"抓取这种 JS 渲染的招聘页面需要 OpenCLI 浏览器桥，现在没连上，会退化成只能抓静态页（很可能失败）。要不要先装一下，还是直接试 WebFetch？"
 - Notion/Obsidian 没配置 → 在第 5 步选输出之前问清楚目标到底是哪个，缺的环境要不要现在配
 
@@ -27,15 +27,17 @@ bash ~/.claude/skills/campus-job-db/scripts/check_setup.sh
 
 ```
 1. 确定公司 / URL + 求职意向（一次性问清，别审问式追问）
-2. 抓取：先查有没有现成 API（首选，fetch_api_paginated.py）；没有才退回 opencli DOM 提取
-   量大就用类别筛选器或 prefilter_large_batch.py 缩范围（数量上限按用户说的卡死）
+2. 抓取：先用求职意向收窄范围（站内筛选器/搜索参数，不可跳过的检查点）；再查有没有现成 API（首选，fetch_api_paginated.py）；没有才退回 opencli DOM 提取
+   范围还是收不窄、量很大就用 prefilter_large_batch.py 二次缩范围（数量上限按用户说的卡死）
 3. 模型拆分职位边界 + 结构化抽取（API 数据干净时用 structure_from_api.py 跳过这步的模型调用）
-4. 模型生成"职位解读 + 资格提示 + 准备建议"  ← deepseek-v4-flash（默认，可换），默认做
+4. 模型生成"职位解读 + 资格提示 + 准备建议"  ← 默认做
 5. （可选）按用户背景打推荐优先级  ← 同一模型
 6. 选输出：Notion（build_notion_pages.py 生成数据，禁止手敲）/ Obsidian Bases / 单文件 Markdown
 ```
 
 **硬规则：每一步都调脚本，不在对话里现场写一次性 python/重新摸索 DOM 选择器。** 抓取前先看 `references/api-reverse-engineering.md`；Notion 写页面必须 `build_notion_pages.py` 生成 → `push_notion_pages.py` 直连 REST API 写入，**不允许把页面正文 Read 进对话再粘进 MCP 工具调用**——大批量正文在模型上下文里重复一遍是明确的 token 浪费，已经被叫停过一次，不要再犯。
+
+**模型怎么选：** 第3/4/5步 + 预筛这4处需要"模型"的活，默认用 `DEEPSEEK_API_KEY`（便宜、适合批量）；**没配外部 key 不等于砍掉这些功能**——换成你自己（执行这个 skill 的你）或第0步问清楚后用户选定的模型档位直接处理，产出跟脚本一样的 JSON 结构，跳过脚本调用即可，具体见各步骤里"没有外部 key 时"的说明。
 
 ---
 
@@ -99,7 +101,7 @@ python3 ~/.claude/skills/campus-job-db/scripts/structure_from_api.py /tmp/<compa
   --out /tmp/<company>_structured.json
 ```
 
-省了一整轮"模型识别职位边界"的调用——边界本来就是干净的，没必要为已结构化的数据再花一次模型调用。`--classify-category` 是否加看你要不要后面按类别筛（不加就全填占位类别，靠后面 prefilter 按方向筛）。
+省了一整轮"模型识别职位边界"的调用——边界本来就是干净的，没必要为已结构化的数据再花一次模型调用。`--classify-category` 是否加看你要不要后面按类别筛（不加就全填占位类别，靠后面 prefilter 按方向筛）。**没有外部 key 时**，`--classify-category` 需要的那次模型调用同样换成你自己直接判断每条的类别后手动填进去（或者干脆不加这个 flag，全填占位类别，反正后面 prefilter 也能按方向筛）——不要因为没 key 就连这一步都跳过。
 
 ### 2b：OpenCLI DOM 提取（没有 API 时的退路）
 
@@ -153,10 +155,12 @@ opencli browser <s> extract
 
 ### 规模控制
 
-抓之前先看页面"全部职位（N）"。N 很大（比如几百）时，后面每条要过 3 次模型调用，又慢又费 key，有两条缩范围的路：
+抓之前先看页面"全部职位（N）"。**这里有一个不能跳过的检查点：第1步已经收集了用户的求职意向（方向/类别/背景），抓取前必须先确认这个数据源有没有能直接用这个意向收窄范围的入口（站内类别筛选器、搜索框、URL 查询参数），并在汇报里说清楚"有没有试这个入口、结果如何"——不能因为全量抓+事后用 `prefilter_large_batch.py` 筛更省事就跳过这一步。** 这条踩过真实的坑：小红书招聘页确实有类别筛选器，但实际执行时图省事直接抓了全量247条，事后才用模型筛出21条相关的——筛选器本来能在抓取阶段就把范围卡住，没必要让无关的226条走一遍抓取和存储。具体案例见 `~/.claude/agents/product-manager/lessons/campus-job-db.md`。
 
-- **网站自带「职位类别」筛选器**（点类别标签 → `wait` → 重新 extract/抓）——筛选生效在抓取之前，最省。
-- **抓完全量后用 `prefilter_large_batch.py` 本地一次性预筛**——N 太大或筛选器不可靠时用这个，**一次模型调用批量判断 match+score，不跑完整解读**，省下后面 `interpret_jobs.py` 对不相关职位的调用：
+只有确认了"这个数据源没有可用的收窄入口，或筛选器试了但不可靠"，才进入下面的退路：
+
+- **网站自带「职位类别」筛选器**（点类别标签 → `wait` → 重新 extract/抓）——筛选生效在抓取之前，最省，**优先尝试这个，不要跳过直接用下面的批量预筛**。
+- **筛选器确实不可用/不可靠时，抓完全量后用 `prefilter_large_batch.py` 本地一次性预筛**——这是退路，不是默认动作。N 太大或筛选器不可靠时用这个，**一次模型调用批量判断 match+score，不跑完整解读**，省下后面 `interpret_jobs.py` 对不相关职位的调用：
 
 ```bash
 python3 ~/.claude/skills/campus-job-db/scripts/prefilter_large_batch.py \
@@ -167,6 +171,8 @@ python3 ~/.claude/skills/campus-job-db/scripts/prefilter_large_batch.py \
 ```
 
 输出 `{id: {match, score}}`，按 `match=true` 过滤出候选子集，**只对这个子集**跑后面第 3/4/5 步的完整流程（结构化→解读→打分）。用户给了数量上限（比如"不超过30"）就在这一步卡住，不要等结构化完了才发现超了。
+
+**没有外部模型 key 时**：不要因此跳过预筛——`prefilter_large_batch.py` 需要 `--key-env` 指向一个真实可用的 key，没有就别跑这个脚本，改成你自己（或第0步问清楚后派去处理的那个模型档位）直接读 `/tmp/<company>_raw.json`，按用户求职意向批量判断每条的 match/score，自己写出同样格式的 `{id: {match, score}}` JSON。条数多时分批处理（参考脚本默认的 20 条一批），不要一次性把几百条全塞进一次判断。
 
 用户坚持要全量、不缩范围，就先告诉 ta 大致耗时（约 N 个职位 × 几次模型调用）再跑。
 
@@ -200,9 +206,9 @@ python3 split_jobs_from_raw.py chunk1.txt chunk2.txt out.json \
   --model deepseek-v4-flash --base-url https://api.deepseek.com/v1 --key-env DEEPSEEK_API_KEY
 ```
 
-**不知道该用哪个 key/模型？** 不要猜——如果你有专门管理 key/工具用法的子 agent（比如本作者自用的 `toolbox`），分发给它问，给它用例（"网页内容检索/结构化抽取"），它会回环境变量名 + base_url + 推荐模型名，不会把明文 key 吐给你。没有这类子 agent 就直接问用户："结构化抽取需要一个 OpenAI 兼容的模型 key（默认假设是 DeepSeek），环境变量名是什么？"
+**有 key 但不知道用哪个？** 不要猜——如果你有专门管理 key/工具用法的子 agent（比如本作者自用的 `toolbox`），分发给它问，给它用例（"网页内容检索/结构化抽取"），它会回环境变量名 + base_url + 推荐模型名，不会把明文 key 吐给你。没有这类子 agent 就直接问用户："结构化抽取需要一个 OpenAI 兼容的模型 key（默认假设是 DeepSeek），环境变量名是什么？"
 
-**这一步没有 `--no-model` 兜底**——拆分职位边界本身需要理解上下文，规则切分对不同站点格式不通用。没 key 时只能退回手写正则（用 `scripts/extract_jobs.py`，见下）。
+**完全没有外部 key 时，不要退到 `--no-model`/手写正则**——拆分职位边界本身需要理解上下文，规则切分对不同站点格式不通用，硬切只会切错。正确做法是：不跑这个脚本，改成你自己（或第 0 步问清楚后用户选定的模型档位）直接读 `/tmp/<company>_chunk*.txt`，照脚本的逻辑识别职位边界、抽取字段，自己写出 `_jobs_structured.json`，字段结构跟脚本输出对齐（`job_id`/`title`/`duties`/`requirements`/`location`/`post_date`/`employment_type`/`category`）。内容多时分批处理，别一次性把所有 chunk 塞进一次判断里。`extract_jobs.py --no-model` 那条纯规则兜底，只在用户明确说"不需要任何语义处理，要多糙都行"时才用。
 
 脚本自带失败重试：单个 chunk 失败（常见是 `max_tokens` 不够导致 JSON 被截断）会自动对半切开重试。
 
@@ -237,7 +243,7 @@ python3 ~/.claude/skills/campus-job-db/scripts/interpret_jobs.py \
 python3 interpret_jobs.py structured.json --out annotated.json
 ```
 
-同样吃 `--model/--base-url/--key-env`。**这一步没有 `--no-model` 兜底**——它产出的是分析判断而不是格式转换，没 key 就只能跳过（直接用 `_jobs_structured.json` 继续走第 5/6 步，输出里就不带这几段），不能用规则硬凑假内容。
+同样吃 `--model/--base-url/--key-env`。**完全没有外部 key 时不要直接跳过这一步**——它产出的是分析判断，没 key 该换成你自己（或选定的模型档位）直接读 `_jobs_structured.json`，按上面三段（职位解读/资格提示/准备建议）的要求逐条生成，把结果写成跟脚本输出一样的字段（`interpretation`/`eligibility_note`/`prep_advice`）追加进 `_jobs_annotated.json`。只有用户明确说不需要这几段，才直接用 `_jobs_structured.json` 跳过本步——不是因为没 key 就默认跳过。
 
 之后第 5/6 步统一吃这一步产出的 `_jobs_annotated.json`（没跑这一步就还是吃 `_jobs_structured.json`）。
 
@@ -254,7 +260,7 @@ python3 ~/.claude/skills/campus-job-db/scripts/recommend_priority.py \
   --out /tmp/<company>_priority.json
 ```
 
-同样吃 `--model/--base-url/--key-env`。这一步是判断题，没有 `--no-model` 兜底——没 key 就跳过这步，照常往下走（推荐优先级全部留空/0）。
+同样吃 `--model/--base-url/--key-env`。这一步是判断题，没有外部 key 时换成你自己（或选定的模型档位）直接读 `_jobs_annotated.json`，按用户背景给每条打 0-5 分，写成 `{job_id: score}` 格式的 `_priority.json`——跟前面几步一样，没 key 不是跳过的理由，只有用户没给背景信息（这一步本身就不该做）才跳过。
 
 ---
 
@@ -378,21 +384,22 @@ views:
 
 | 用途 | 默认 | 环境变量/参数 | 缺失时的降级 |
 |---|---|---|---|
-| 拆分+结构化抽取模型 | `deepseek-v4-flash` | `split_jobs_from_raw.py` 的 `--model` / `JOB_EXTRACT_MODEL` | 没有 `--no-model` 兜底，没 key 退回手写正则 + `extract_jobs.py --no-model` |
+| 拆分+结构化抽取模型 | `deepseek-v4-flash` | `split_jobs_from_raw.py` 的 `--model` / `JOB_EXTRACT_MODEL` | **没有外部 key 不等于没有这个功能**：换成执行 skill 的你（或用户选定的模型档位）直接处理，产出同样的 JSON 结构，不跑脚本。只有用户明确要最彻底的零语义处理时才退到 `extract_jobs.py --no-model` 的纯规则兜底 |
 | 模型 base_url | `https://api.deepseek.com/v1` | `--base-url` / `JOB_EXTRACT_BASE_URL` | 同上 |
 | 模型 key 环境变量名 | `DEEPSEEK_API_KEY` | `--key-env` / `JOB_EXTRACT_KEY_ENV` | 同上 |
-| 职位解读+准备建议 | 同上三项 | `interpret_jobs.py` 的 `--model/--base-url/--key-env` | 没 key 就跳过整步，不带这两段，无规则兜底 |
-| 推荐优先级 | 同上三项 | `recommend_priority.py` 的同名参数 | 没 key/没背景就跳过，优先级留空 |
-| 大批量预筛 | 同上三项 | `prefilter_large_batch.py` 的同名参数 | 没 key 就只能靠网站类别筛选器，或全量跑后面步骤（慢） |
+| 职位解读+准备建议 | 同上三项 | `interpret_jobs.py` 的 `--model/--base-url/--key-env` | 没 key 时你自己处理，不跳过整步 |
+| 推荐优先级 | 同上三项 | `recommend_priority.py` 的同名参数 | 没 key 时你自己处理；没背景信息才跳过（跟有没有 key 无关） |
+| 大批量预筛 | 同上三项 | `prefilter_large_batch.py` 的同名参数 | 没 key 时你自己分批判断 match/score，不靠脚本调用，也不因此放弃收窄范围 |
 | 抓取-首选 | 纯 curl/urllib（`fetch_api_paginated.py`） | 需要先逆向出接口（见 references） | 退到 OpenCLI DOM 提取 |
 | 抓取-备选 | OpenCLI 浏览器桥 | 需要 `opencli` 安装 + Chrome 扩展已连接，且没有别的扩展占用 `chrome.debugger` | 退到 WebFetch，再退到用户粘贴 |
 | 输出-Notion | 建库用 Notion MCP，写页面用 `push_notion_pages.py` 直连 REST API（自动按链接去重，多公司汇总库用 `build_notion_pages.py --company` 打标签） | 建库需对话连 Notion MCP；写页面需 `NOTION_API_TOKEN`（internal integration secret）+ 该集成已连接到目标数据库 | 没 token 就退到 Obsidian 或纯 Markdown，别用 MCP 工具硬写大批量页面正文（费 token） |
 | 输出-Obsidian | Bases 插件 | 需要 vault 路径（问用户） | 退到纯 Markdown |
 | 输出-Markdown | 无依赖 | 只需要 Write 工具 | 这是兜底，没有更低一级 |
 
-## 最小可用版本（zero-config 路径）
+## 两种"没有外部 key"的路径，别搞混
 
-什么插件都没装、什么 key 都没配，仍然能跑通：
+- **常规情况（绝大多数时候该走这条）**：没有 `DEEPSEEK_API_KEY` 不等于砍掉结构化/解读/打分功能——换成你自己（执行 skill 的你）或用户选定的模型档位直接处理这几步，产出跟脚本一样的 JSON 结构，正常往下走完整流程。这才是"没配外部 key"时的默认动作，前面每一步都写了具体怎么做。
+- **极端情况（用户明确不想要任何语义处理时才用）**：用户说"不需要AI处理，能粘出来就行"这类要求时，才走下面这条最彻底的零模型介入兜底——纯规则切分，没有职位解读/准备建议/推荐优先级：
 
 ```bash
 # 1. 抓（WebFetch，仅限非 SPA 静态页；SPA 就让用户粘贴内容到一个文件）
@@ -401,4 +408,4 @@ python3 extract_jobs.py raw.json out.json --no-model
 python3 render_markdown.py out.json --mode single --out 职位汇总.md --title "XX校招"
 ```
 
-产出一份未经模型清洗、但完整无遗漏的单文件 Markdown（没有职位解读/准备建议/推荐优先级，因为这三步都要模型）。后续随时可以补上模型 key 重新跑第 3/4/5 步把它结构化、加解读建议、加打分，或换更高级的输出目标——产物是分阶段叠加的，不需要推倒重来。
+产出一份未经任何语义处理、但完整无遗漏的单文件 Markdown。后续随时可以换成你自己处理第 3/4/5 步把它结构化、加解读建议、加打分，或换更高级的输出目标——产物是分阶段叠加的，不需要推倒重来。

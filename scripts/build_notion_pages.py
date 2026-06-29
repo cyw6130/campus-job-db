@@ -9,6 +9,13 @@ Read it into the assistant's context and don't paste it into an MCP tool call.
 Both of those make the assistant's own context hold the same Chinese text
 twice (once reading, once re-emitting as a tool argument), which is pure
 token waste for content that a script can ship directly via the REST API.
+
+When the assistant hand-writes a *new* one-off entry's JSON directly (e.g.
+adding a single job found outside the normal batch pipeline), the same
+quoting trap as the 【】 bracket issue applies to straight double quotes
+("...") inside Chinese prose — they terminate the JSON string early. Use
+curly quotes (“...”) inside any field value, or run the file through
+`python3 -c "import json; json.load(open(path))"` before pushing.
 """
 import argparse
 import json

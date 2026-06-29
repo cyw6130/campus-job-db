@@ -154,7 +154,7 @@ def main() -> None:
     ap.add_argument("--database-id", required=True)
     ap.add_argument("--title-prop", default="职位名称")
     ap.add_argument("--select-props", default="类型,类别,公司")
-    ap.add_argument("--multi-select-props", default="")
+    ap.add_argument("--multi-select-props", default="兴趣")
     ap.add_argument("--date-props", default="")
     ap.add_argument("--number-props", default="推荐优先级")
     ap.add_argument("--url-props", default="链接")

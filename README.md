@@ -77,6 +77,10 @@ flowchart TD
 | Obsidian 笔记库 | 一个装了 Bases 插件的 vault | 改用 Markdown |
 | 单文件 Markdown | 不需要任何配置 | 永远能用，零依赖兜底 |
 
+Notion 输出效果（按匹配度分组、推荐优先级打分、点开看结构化后的完整职位信息）：
+
+![Notion 职位库效果图](images/notion-demo.webp)
+
 ## 脚本一览
 
 `scripts/` 下每个脚本都能单独跑（`python3 <script>.py --help` 看参数），但正常使用不需要你自己调——跟 Claude 说清楚需求，它会照 `SKILL.md` 的流程自己选脚本、传参数、串起整条流水线。
